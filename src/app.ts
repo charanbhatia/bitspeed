@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import routes from './routes/index';
 import { errorMiddleware, notFoundMiddleware } from './middleware/error.middleware';
 import { globalRateLimiter } from './middleware/rate-limit.middleware';
+import { correlationIdMiddleware } from './middleware/correlation-id.middleware';
 
 export function createApp(): Application {
   const app = express();
@@ -12,6 +13,7 @@ export function createApp(): Application {
   // Security middleware
   app.use(helmet());
   app.use(cors());
+  app.use(correlationIdMiddleware);
   app.use(globalRateLimiter);
 
   // Request parsing
