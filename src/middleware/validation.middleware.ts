@@ -29,6 +29,16 @@ export function validateIdentifyRequest(
     return next(new ValidationError('phoneNumber must be a string'));
   }
 
+  if (hasPhone) {
+    // Strip common formatting characters before validating
+    const stripped = (phoneNumber as string).replace(/[\s\-().+]/g, '');
+    if (!/^\d{5,15}$/.test(stripped)) {
+      return next(
+        new ValidationError('phoneNumber must contain 5–15 digits (spaces, dashes, and parentheses are allowed)'),
+      );
+    }
+  }
+
   if (hasEmail) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test((email as string).trim())) {
