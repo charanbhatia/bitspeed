@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: bitspeed-identity-reconciliation
+    env: node
+    plan: free
+    buildCommand: npm install && npm run prisma:generate && npm run build && npm run prisma:migrate
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bitspeed-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+
+databases:
+  - name: bitspeed-db
+    plan: free
+    databaseName: bitspeed_db
+    user: bitspeed
