@@ -15,7 +15,9 @@ A production-ready microservice that identifies and reconciles customer identity
 
 FluxKart.com customers often place orders using different email addresses and phone numbers across purchases. This service solves the identity reconciliation problem by maintaining a graph of linked contacts, always returning a consolidated view of all known information for a given customer.
 
-**Live Endpoint:** `https://bitspeed-identity-reconciliation.onrender.com`
+**Live Endpoint:** `https://bitspeed-identity-reconciliation-yb3h.onrender.com`
+
+> Note: The free-tier Render service spins down after 15 minutes of inactivity. The first request after idle may take 30–60 seconds to respond (cold start). Subsequent requests are fast.
 
 ### Key Behaviours
 
