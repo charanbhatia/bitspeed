@@ -4,7 +4,7 @@ import { IIdentifyRequest, IIdentifyResponse, IConsolidatedContact } from '../in
 import { IContactRepository } from '../interfaces/repository.interface';
 import { IContactService } from '../interfaces/service.interface';
 import { ContactRepository } from '../repositories/contact.repository';
-import { ValidationError } from '../utils/errors';
+import { ValidationError, NotFoundError } from '../utils/errors';
 
 export class ContactService implements IContactService {
   private readonly contactRepository: IContactRepository;
@@ -81,6 +81,19 @@ export class ContactService implements IContactService {
     }
 
     return this.buildResponse(finalCluster);
+  }
+
+  async getConsolidatedById(id: number): Promise<IIdentifyResponse> {
+    const contact = await this.contactRepository.findById(id);
+    if (!contact) {
+      throw new NotFoundError(`Contact with id ${id} not found`);
+    }
+
+    const primaryId =
+      contact.linkPrecedence === LinkPrecedence.primary ? contact.id : contact.linkedId!;
+
+    const cluster = await this.contactRepository.findClusterByPrimaryId(primaryId);
+    return this.buildResponse(cluster);
   }
 
   private resolvePrimaryIds(contacts: IContact[]): Set<number> {

@@ -7,5 +7,6 @@ const router = Router();
 const contactController = new ContactController();
 
 router.post('/identify', identifyRateLimiter, validateIdentifyRequest, contactController.identify);
+router.get('/contacts/:id', contactController.getById);
 
 export default router;
