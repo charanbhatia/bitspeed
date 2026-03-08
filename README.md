@@ -1,74 +1,12 @@
 # Bitespeed Identity Reconciliation Service
 
-A production-ready microservice that identifies and reconciles customer identity across multiple purchases by linking different contact information (email addresses and phone numbers) to a single customer profile.
+A production-ready microservice that identifies and reconciles customer identity across multiple purchases by linking contact information (email addresses and phone numbers) to a single customer profile.
 
-## Table of Contents
+**Live URL:** `https://bitspeed-identity-reconciliation-yb3h.onrender.com`
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [API Reference](#api-reference)
-- [Local Development](#local-development)
-- [Deployment](#deployment)
-- [Project Structure](#project-structure)
+> The free-tier Render instance spins down after inactivity. The first request may take 30-60 seconds (cold start). Subsequent requests are fast.
 
-## Overview
-
-FluxKart.com customers often place orders using different email addresses and phone numbers across purchases. This service solves the identity reconciliation problem by maintaining a graph of linked contacts, always returning a consolidated view of all known information for a given customer.
-
-**Live Endpoint:** `https://bitspeed-identity-reconciliation-yb3h.onrender.com`
-
-> Note: The free-tier Render service spins down after 15 minutes of inactivity. The first request after idle may take 30–60 seconds to respond (cold start). Subsequent requests are fast.
-
-### Key Behaviours
-
-- A new contact with no matching email or phone creates a new **primary** contact.
-- A request that shares an email or phone with an existing contact but carries new information creates a **secondary** contact linked to the primary.
-- When a request links two previously independent primary contacts, the newer primary is demoted to secondary and all its former secondaries are re-pointed to the surviving primary.
-
-## Architecture
-
-The service follows a layered microservice architecture applying SOLID and DRY principles throughout.
-
-```
-HTTP Request
-    │
-    ▼
-Validation Middleware  (input sanitisation & constraint checks)
-    │
-    ▼
-Controller Layer       (HTTP ↔ domain translation)
-    │
-    ▼
-Service Layer          (business logic & identity reconciliation algorithm)
-    │
-    ▼
-Repository Layer       (data-access abstraction over Prisma ORM)
-    │
-    ▼
-PostgreSQL Database
-```
-
-### Design Principles Applied
-
-| Principle | Implementation |
-|-----------|---------------|
-| Single Responsibility | Each class has one reason to change — `ContactRepository` only handles data access, `ContactService` only handles business rules |
-| Open/Closed | `IContactRepository` and `IContactService` interfaces allow alternative implementations to be injected without modifying existing code |
-| Liskov Substitution | Concrete classes satisfy their interface contracts fully |
-| Interface Segregation | `IContactRepository`, `IContactService`, and DTO interfaces are focused and minimal |
-| Dependency Inversion | `ContactService` depends on `IContactRepository` (interface), not `ContactRepository` (concrete class) |
-| DRY | Identity reconciliation logic is in one place; shared error hierarchy avoids repetition |
-
-### Identity Reconciliation Algorithm
-
-1. Find all contacts directly matching the incoming `email` or `phoneNumber`.
-2. If no matches exist, create a new primary contact and return.
-3. Resolve the root primary ID for every matched contact.
-4. Fetch the complete cluster for all discovered primaries.
-5. Elect the oldest (by `createdAt`) contact as the true primary.
-6. Demote any other primaries to secondary and re-parent their dependants.
-7. If the request contains information not present in any existing cluster contact, create a new secondary.
-8. Return the consolidated contact view.
+---
 
 ## API Reference
 
@@ -78,19 +16,13 @@ Identifies a customer and returns their consolidated contact profile.
 
 **Request**
 
-```http
-POST /identify
-Content-Type: application/json
+```bash
+curl -X POST https://bitspeed-identity-reconciliation-yb3h.onrender.com/identify \
+  -H "Content-Type: application/json" \
+  -d '{"email": "lorraine@hillvalley.edu", "phoneNumber": "123456"}'
 ```
 
-```json
-{
-  "email": "mcfly@hillvalley.edu",
-  "phoneNumber": "123456"
-}
-```
-
-At least one of `email` or `phoneNumber` must be provided. Both can be supplied simultaneously.
+At least one of `email` or `phoneNumber` must be provided.
 
 **Response — 200 OK**
 
@@ -108,168 +40,217 @@ At least one of `email` or `phoneNumber` must be provided. Both can be supplied 
 | Field | Type | Description |
 |-------|------|-------------|
 | `primaryContatctId` | `number` | ID of the oldest (primary) contact in the cluster |
-| `emails` | `string[]` | All unique emails; primary email is first |
-| `phoneNumbers` | `string[]` | All unique phone numbers; primary phone is first |
-| `secondaryContactIds` | `number[]` | IDs of all secondary contacts |
+| `emails` | `string[]` | All unique emails — primary email first |
+| `phoneNumbers` | `string[]` | All unique phone numbers — primary phone first |
+| `secondaryContactIds` | `number[]` | IDs of all linked secondary contacts |
 
 **Error Responses**
 
 | Status | Condition |
 |--------|-----------|
-| 400 | Neither `email` nor `phoneNumber` provided, or invalid format |
-| 404 | Route does not exist |
+| 400 | Neither field provided, or invalid format |
+| 429 | Rate limit exceeded |
 | 500 | Unexpected server error |
+
+---
+
+### GET /contacts/:id
+
+Returns the consolidated contact cluster for a given contact ID.
+
+```bash
+curl https://bitspeed-identity-reconciliation-yb3h.onrender.com/contacts/1
+```
+
+**Response — 200 OK** — same shape as `/identify`.
+
+---
 
 ### GET /health
 
-Returns service liveness status.
+Returns service liveness and database connectivity status.
+
+```bash
+curl https://bitspeed-identity-reconciliation-yb3h.onrender.com/health
+```
 
 ```json
 {
   "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "service": "bitspeed-identity-reconciliation"
+  "timestamp": "2026-03-08T16:32:47.061Z",
+  "service": "bitspeed-identity-reconciliation",
+  "database": "connected"
 }
 ```
+
+Returns `503` with `"database": "disconnected"` if the database is unreachable.
+
+---
+
+## Rate Limiting
+
+| Limit | Scope |
+|-------|-------|
+| 200 requests / 15 minutes | All routes (global) |
+| 60 requests / 1 minute | `POST /identify` only |
+
+Requests exceeding the limit receive a `429 Too Many Requests` response.
+
+---
+
+## Example curl Scenarios
+
+```bash
+BASE="https://bitspeed-identity-reconciliation-yb3h.onrender.com"
+
+# 1. Create a brand-new primary contact
+curl -X POST "$BASE/identify" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "lorraine@hillvalley.edu", "phoneNumber": "123456"}'
+
+# 2. Same phone, new email — creates a secondary linked to contact 1
+curl -X POST "$BASE/identify" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "mcfly@hillvalley.edu", "phoneNumber": "123456"}'
+
+# 3. Two previously independent primaries get merged into one cluster
+curl -X POST "$BASE/identify" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "lorraine@hillvalley.edu", "phoneNumber": "789012"}'
+
+# 4. Query by phone only
+curl -X POST "$BASE/identify" \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber": "123456"}'
+
+# 5. Look up a contact by ID
+curl "$BASE/contacts/1"
+
+# 6. Health check
+curl "$BASE/health"
+```
+
+---
+
+## Architecture
+
+```
+HTTP Request
+    |
+    v
+Validation Middleware  -- input sanitisation & constraint checks
+    |
+    v
+Controller Layer       -- HTTP <-> domain translation
+    |
+    v
+Service Layer          -- business logic & reconciliation algorithm
+    |
+    v
+Repository Layer       -- data-access abstraction over Prisma ORM
+    |
+    v
+PostgreSQL Database
+```
+
+### Identity Reconciliation Algorithm
+
+1. Find all contacts matching the incoming `email` or `phoneNumber`.
+2. If no matches exist, create a new primary contact and return.
+3. Resolve the root primary for every matched contact.
+4. Fetch the complete cluster for all discovered primaries.
+5. Elect the oldest contact (by `createdAt`) as the true primary.
+6. Demote any other primaries to secondary and re-parent their dependants.
+7. If the request carries new information not present in the cluster, create a secondary.
+8. Return the consolidated contact view.
+
+---
 
 ## Local Development
 
 ### Prerequisites
 
-- Node.js 18 or later
-- PostgreSQL 14 or later
+- Node.js 18+
+- PostgreSQL 14+
 
 ### Setup
 
-1. Clone the repository:
+```bash
+# 1. Clone and install
+git clone https://github.com/charanbhatia/bitspeed.git
+cd bitspeed
+npm install
 
-   ```bash
-   git clone https://github.com/<your-username>/bitspeed-identity-reconciliation.git
-   cd bitspeed-identity-reconciliation
-   ```
+# 2. Configure environment
+cp .env.example .env
+# Set DATABASE_URL in .env:
+# DATABASE_URL="postgresql://user:password@localhost:5432/bitspeed_db?schema=public"
 
-2. Install dependencies:
+# 3. Apply migrations
+npm run prisma:migrate:dev
 
-   ```bash
-   npm install
-   ```
+# 4. Start dev server
+npm run dev
+```
 
-3. Create a `.env` file from the example:
+The service starts at `http://localhost:3000`.
 
-   ```bash
-   cp .env.example .env
-   ```
-
-4. Set `DATABASE_URL` in `.env` to point at your PostgreSQL instance:
-
-   ```
-   DATABASE_URL="postgresql://user:password@localhost:5432/bitspeed_db?schema=public"
-   ```
-
-5. Run the database migrations:
-
-   ```bash
-   npm run prisma:migrate:dev
-   ```
-
-6. Start the development server with hot-reload:
-
-   ```bash
-   npm run dev
-   ```
-
-The service will be available at `http://localhost:3000`.
-
-### Available Scripts
+### Scripts
 
 | Script | Description |
 |--------|-------------|
-| `npm run dev` | Start development server with hot-reload |
+| `npm run dev` | Start with hot-reload |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm start` | Run compiled production build |
-| `npm run prisma:migrate:dev` | Create and apply a new migration (development) |
+| `npm run prisma:migrate:dev` | Create and apply a migration (development) |
 | `npm run prisma:migrate` | Apply pending migrations (production) |
-| `npm run prisma:generate` | Regenerate Prisma client after schema changes |
+| `npm run prisma:generate` | Regenerate Prisma client |
 
-### Testing the API
-
-Using curl:
-
-```bash
-# Create a new contact
-curl -X POST http://localhost:3000/identify \
-  -H "Content-Type: application/json" \
-  -d '{"email": "lorraine@hillvalley.edu", "phoneNumber": "123456"}'
-
-# Identify with overlapping info — creates a secondary contact
-curl -X POST http://localhost:3000/identify \
-  -H "Content-Type: application/json" \
-  -d '{"email": "mcfly@hillvalley.edu", "phoneNumber": "123456"}'
-
-# Link two independent clusters
-curl -X POST http://localhost:3000/identify \
-  -H "Content-Type: application/json" \
-  -d '{"email": "george@hillvalley.edu", "phoneNumber": "717171"}'
-```
-
-## Deployment
-
-The service is configured for zero-downtime deployment on [Render](https://render.com) using the included `render.yaml`.
-
-### Deploying to Render
-
-1. Push this repository to GitHub.
-2. Log in to [Render](https://render.com) and select **New > Blueprint**.
-3. Connect your GitHub repository.
-4. Render will automatically provision a PostgreSQL database and web service using `render.yaml`.
-5. Set any additional environment variables in the Render dashboard if needed.
-
-The `render.yaml` blueprint will:
-- Provision a free-tier PostgreSQL database
-- Build and start the Node.js service
-- Run `prisma migrate deploy` on each deploy to apply pending migrations
+---
 
 ## Project Structure
 
 ```
 .
 ├── prisma/
-│   ├── migrations/         # Database migration files
-│   └── schema.prisma       # Prisma data model
+│   ├── migrations/
+│   └── schema.prisma
 ├── src/
 │   ├── config/
-│   │   ├── database.ts     # Prisma client singleton
-│   │   └── environment.ts  # Environment variable validation
+│   │   ├── database.ts          # Prisma client singleton
+│   │   └── environment.ts       # Environment variable validation
 │   ├── controllers/
 │   │   └── contact.controller.ts
-│   ├── interfaces/
-│   │   ├── contact.interface.ts    # Contact DTOs
-│   │   ├── identify.interface.ts   # Request/response shapes
-│   │   ├── repository.interface.ts # IContactRepository contract
-│   │   └── service.interface.ts    # IContactService contract
+│   ├── interfaces/              # IContact, IIdentifyRequest/Response, IRepository, IService
 │   ├── middleware/
-│   │   ├── error.middleware.ts     # Global error handler
+│   │   ├── correlation-id.middleware.ts
+│   │   ├── error.middleware.ts
+│   │   ├── rate-limit.middleware.ts
 │   │   └── validation.middleware.ts
 │   ├── repositories/
-│   │   └── contact.repository.ts   # Prisma-backed implementation
+│   │   └── contact.repository.ts
 │   ├── routes/
 │   │   ├── contact.routes.ts
 │   │   └── index.ts
 │   ├── services/
-│   │   └── contact.service.ts      # Identity reconciliation logic
+│   │   └── contact.service.ts   # Core reconciliation logic
 │   ├── utils/
-│   │   ├── errors.ts               # AppError hierarchy
-│   │   └── logger.ts               # Structured JSON logger
-│   ├── app.ts                      # Express application factory
-│   └── server.ts                   # Entry point & graceful shutdown
-├── .env.example
-├── .gitignore
-├── package.json
+│   │   └── errors.ts
+│   ├── app.ts
+│   └── server.ts
+├── Dockerfile
+├── docker-compose.yml
 ├── render.yaml
 ├── tsconfig.json
-└── README.md
+└── package.json
 ```
 
-## License
+---
 
-ISC
+## Deployment
+
+Deployed on [Render](https://render.com) via the included `render.yaml` blueprint.
+
+The blueprint provisions a free-tier PostgreSQL database and the Node.js web service. On each deploy, `prisma migrate deploy` runs automatically to apply pending migrations.
+
+To self-host: push to GitHub, create a new Render Blueprint, and connect the repository.
