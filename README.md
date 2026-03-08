@@ -4,7 +4,6 @@ A production-ready microservice that identifies and reconciles customer identity
 
 **Live URL:** `https://bitspeed-identity-reconciliation-yb3h.onrender.com`
 
-> The free-tier Render instance spins down after inactivity. The first request may take 30-60 seconds (cold start). Subsequent requests are fast.
 
 ---
 
@@ -246,11 +245,3 @@ The service starts at `http://localhost:3000`.
 ```
 
 ---
-
-## Deployment
-
-Deployed on [Render](https://render.com) via the included `render.yaml` blueprint.
-
-The blueprint provisions a free-tier PostgreSQL database and the Node.js web service. On each deploy, `prisma migrate deploy` runs automatically to apply pending migrations.
-
-To self-host: push to GitHub, create a new Render Blueprint, and connect the repository.
